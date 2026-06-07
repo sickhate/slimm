@@ -1,0 +1,12 @@
+*.o
+*.d
+/slimm
+/slimc
+/theme.slimt
+/slimm-*.pkg.tar.zst
+slimm-debug-*.pkg.tar.zst
+pkg/
+src/slimm-src/
+preview*.png
+.bare.git/
+slimm.service.tmp

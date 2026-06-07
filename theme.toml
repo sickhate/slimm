@@ -1,0 +1,32 @@
+# SLiMM Theme Configuration
+# Colors: 6-digit hex (#rrggbb) or 8-digit hex (#rrggbbaa)
+# Strings: double-quoted
+#
+# mode = "drm"      # bare TTY via KMS (default; use with systemd on tty1)
+# mode = "wayland"  # overlay on wlroots compositor (Hyprland, Sway) for dev testing
+
+background_color = "#141418"
+panel_bg_color = "#29292ee8"
+accent_color = "#00bfff"
+text_color = "#ffffffe6"
+field_bg_color = "#333336"
+field_text_color = "#ffffffe6"
+
+font = "JetBrainsMono Nerd Font"
+# font_path = "/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf"  # direct path, skips fontconfig (~50ms faster)
+font_size = 18
+panel_width = 500
+corner_radius = 16
+
+# Logo: auto-detected at build from /etc/os-release (ID, then ID_LIKE).
+# Override manually: logo_path = "/path/to/logo.png"
+# Bundled logos/: arch debian endeavouros fedora gentoo manjaro nixos opensuse ubuntu
+# bg_max_width = 1280   # slimc downscales bg into STE2 (default 1280)
+# bg_max_height = 720
+
+default_session = "Hyprland"
+autologin_user = ""
+autologin_delay = 0
+numlock = true
+# sessions_dir = "/usr/share/wayland-sessions"
+# session = "Hyprland|/usr/bin/Hyprland"

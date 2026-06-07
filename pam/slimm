@@ -1,0 +1,25 @@
+# PAM configuration for slimm — Arch Linux variant
+# Based on /etc/pam.d/system-login and /etc/pam.d/system-auth
+#
+# pam_systemd.so uses class=user (not greeter) so the session
+# gets device ACLs (audio, video, etc.) for the logged-in user.
+
+auth       include    system-auth
+auth       optional   pam_gnome_keyring.so
+
+account    include    system-auth
+
+password   include    system-auth
+
+session    optional   pam_loginuid.so
+session    optional   pam_keyinit.so       force revoke
+session    required   pam_limits.so
+session    required   pam_unix.so
+session    optional   pam_permit.so
+session    optional   pam_lastlog2.so      silent
+session    optional   pam_motd.so
+session    optional   pam_mail.so          dir=/var/spool/mail standard quiet
+session    optional   pam_umask.so
+session    required   pam_env.so
+session    optional   pam_gnome_keyring.so auto_start
+session    required   pam_systemd.so       class=user
