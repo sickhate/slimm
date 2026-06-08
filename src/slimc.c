@@ -12,6 +12,30 @@
 #include "../third_party/stb_image.h"
 #include "imgscale.h"
 
+static int slimc_verbose(void)
+{
+    const char *v = getenv("SLIMC_VERBOSE");
+    return v && v[0] && strcmp(v, "0") != 0;
+}
+
+#define slimc_vlog(...) do { if (slimc_verbose()) fprintf(stderr, __VA_ARGS__); } while (0)
+
+static void slimc_logo_id(const char *logo_path, char *id, size_t id_sz)
+{
+    id[0] = '\0';
+    if (!logo_path || !logo_path[0])
+        return;
+    const char *base = strrchr(logo_path, '/');
+    base = base ? base + 1 : logo_path;
+    size_t len = strlen(base);
+    if (len > 4 && strcmp(base + len - 4, ".png") == 0)
+        len -= 4;
+    if (len >= id_sz)
+        len = id_sz - 1;
+    memcpy(id, base, len);
+    id[len] = '\0';
+}
+
 static char *resolve_font_path(const char *name)
 {
     if (name[0] == '/') return strdup(name);
@@ -78,7 +102,7 @@ static int generate_atlas(const char *font_spec, int pixel_size,
         FT_Done_FreeType(ft);
         return -1;
     }
-    fprintf(stderr, "slimc: loaded font '%s'\n", fpath);
+    slimc_vlog("slimc: loaded font '%s'\n", fpath);
     free(fpath);
 
     FT_Set_Pixel_Sizes(face, 0, pixel_size);
@@ -170,9 +194,11 @@ int main(int argc, char *argv[])
     }
 
     if (argc < 3) {
+        fprintf(stderr, "slimc — compile theme.toml into STE2 blob for production slimm\n\n");
         fprintf(stderr, "Usage: slimc theme.toml -o theme.slimt\n");
-        fprintf(stderr, "       slimc --os-logo\n");
-        fprintf(stderr, "       slimc --os-logo-id\n");
+        fprintf(stderr, "       slimc --os-logo          print logo path for this OS\n");
+        fprintf(stderr, "       slimc --os-logo-id       print distro id (e.g. arch)\n");
+        fprintf(stderr, "\nSet SLIMC_VERBOSE=1 for full compile log.\n");
         return 1;
     }
 
@@ -193,7 +219,7 @@ int main(int argc, char *argv[])
     if (!config_pick_logo(&cfg.theme))
         fprintf(stderr, "slimc: warning: no logo for this OS (see logos/)\n");
     else
-        fprintf(stderr, "slimc: using logo %s\n", cfg.theme.logo_path);
+        slimc_vlog("slimc: using logo %s\n", cfg.theme.logo_path);
 
     struct ste2_header hdr;
     memset(&hdr, 0, sizeof(hdr));
@@ -244,12 +270,12 @@ int main(int argc, char *argv[])
                 stbi_image_free(raw);
                 if (bg_data) {
                     bg_w = dw; bg_h = dh;
-                    fprintf(stderr, "slimc: bg %dx%d -> %dx%d\n", sw, sh, dw, dh);
+                    slimc_vlog("slimc: bg %dx%d -> %dx%d\n", sw, sh, dw, dh);
                 }
             } else {
                 bg_data = raw;
                 bg_w = sw; bg_h = sh;
-                fprintf(stderr, "slimc: bg %dx%d\n", bg_w, bg_h);
+                slimc_vlog("slimc: bg %dx%d\n", bg_w, bg_h);
             }
         }
     }
@@ -271,12 +297,12 @@ int main(int argc, char *argv[])
                 stbi_image_free(raw);
                 if (logo_data) {
                     logo_w = dw; logo_h = dh;
-                    fprintf(stderr, "slimc: logo %dx%d -> %dx%d\n", sw, sh, dw, dh);
+                    slimc_vlog("slimc: logo %dx%d -> %dx%d\n", sw, sh, dw, dh);
                 }
             } else {
                 logo_data = raw;
                 logo_w = sw; logo_h = sh;
-                fprintf(stderr, "slimc: logo %dx%d\n", logo_w, logo_h);
+                slimc_vlog("slimc: logo %dx%d\n", logo_w, logo_h);
             }
         }
     }
@@ -326,6 +352,15 @@ int main(int argc, char *argv[])
     free(bg_data);
     free(logo_data);
 
-    fprintf(stderr, "slimc: wrote %u bytes to '%s'\n", off, out_path);
+    if (slimc_verbose()) {
+        fprintf(stderr, "slimc: wrote %u bytes to '%s'\n", off, out_path);
+    } else {
+        char id[64];
+        slimc_logo_id(cfg.theme.logo_path, id, sizeof(id));
+        if (id[0])
+            fprintf(stderr, "slimc: %s (logo %s, %u bytes)\n", out_path, id, off);
+        else
+            fprintf(stderr, "slimc: %s (%u bytes)\n", out_path, off);
+    }
     return 0;
 }

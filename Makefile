@@ -1,9 +1,22 @@
-CC ?= cc
+# SLiMM — Stateless Lightweight Modern Manager
+# MINIMAL=1 (default): production greeter ~52KB, STE2-only runtime
+# make dev: MINIMAL=0 with TOML + Wayland overlay for development
+# See README.md for lineage (SLiM → SLiM2 → SLiMM) and build flags
+
 MINIMAL ?= 1
-VERSION ?= 0.2.2
+VERSION ?= 0.2.3
+V ?= 0
 
 OPT_CFLAGS = -Os -pipe -flto -fdata-sections -ffunction-sections
 OPT_LDFLAGS = -Wl,--gc-sections -lm -flto
+
+ifeq ($(V),0)
+  Q = @
+  E = @printf '%s\n'
+else
+  Q =
+  E = @:
+endif
 
 COMMON_SRC = src/main.c src/auth.c src/session.c src/ui.c src/config.c \
              src/vt.c src/drm.c src/renderer.c src/input.c src/ste2.c \
@@ -43,55 +56,60 @@ STE2_PATH ?= $(SYSCONFDIR)/slimm/theme.slimt
 LOGO_DIR ?= $(PREFIX)/share/slimm/logos
 
 all: slimm slimc theme.slimt
+	$(E) "slimm $(VERSION) ready"
 
 slimm: $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $(OBJ) $(LDFLAGS)
+	$(E) "  LINK slimm"
+	$(Q)$(CC) $(CFLAGS) -o $@ $(OBJ) $(LDFLAGS)
 
 slimc: src/slimc.c src/config.c src/imgscale.c src/exec.c
-	$(CC) $(SLIMC_CFLAGS) -o $@ src/slimc.c src/config.c src/imgscale.c src/exec.c $(SLIMC_LDFLAGS)
+	$(E) "  LINK slimc"
+	$(Q)$(CC) $(SLIMC_CFLAGS) -o $@ src/slimc.c src/config.c src/imgscale.c src/exec.c $(SLIMC_LDFLAGS)
 
-# Bake host-OS logo into theme.slimt (reads /etc/os-release, ID then ID_LIKE)
 theme.slimt: theme.toml slimc logos-check
-	./slimc theme.toml -o $@
+	$(Q)./slimc theme.toml -o $@
 
 logos-check: slimc
-	@test -d logos || { echo "slimm: missing logos/ directory"; exit 1; }
-	@./slimc --os-logo >/dev/null || { \
+	$(Q)test -d logos || { echo "slimm: missing logos/ directory"; exit 1; }
+	$(Q)./slimc --os-logo >/dev/null || { \
 		echo "slimm: no logos/<id>.png for this OS (check /etc/os-release)"; \
 		echo "slimm: supported: $$(ls logos/*.png 2>/dev/null | xargs -n1 basename | sed 's/.png//')"; \
 		exit 1; \
 	}
 
 %.o: %.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(E) "  CC $<"
+	$(Q)$(CC) $(CFLAGS) -c -o $@ $<
 
-install: slimm slimc theme.slimt
-	install -Dm755 slimm $(DESTDIR)$(BINDIR)/slimm
-	install -Dm755 slimc $(DESTDIR)$(BINDIR)/slimc
-	install -Dm644 theme.toml $(DESTDIR)$(SYSCONFDIR)/slimm/theme.toml
-	install -Dm644 theme.slimt $(DESTDIR)$(STE2_PATH)
-	install -Dm644 pam/slimm $(DESTDIR)$(SYSCONFDIR)/pam.d/slimm
-	@logo=$$(./slimc --os-logo); \
+install: slimm slimc
+	@test -f theme.slimt || { echo "slimm: run 'make' first (theme.slimt missing)"; exit 1; }
+	$(E) "  INSTALL"
+	$(Q)install -Dm755 slimm $(DESTDIR)$(BINDIR)/slimm
+	$(Q)install -Dm755 slimc $(DESTDIR)$(BINDIR)/slimc
+	$(Q)install -Dm644 theme.toml $(DESTDIR)$(SYSCONFDIR)/slimm/theme.toml
+	$(Q)install -Dm644 theme.slimt $(DESTDIR)$(STE2_PATH)
+	$(Q)install -Dm644 pam/slimm $(DESTDIR)$(SYSCONFDIR)/pam.d/slimm
+	$(Q)logo=$$(./slimc --os-logo); \
 	id=$$(basename "$$logo" .png); \
 	install -dm755 $(DESTDIR)$(LOGO_DIR); \
-	install -Dm644 "$$logo" $(DESTDIR)$(LOGO_DIR)/$$id.png; \
-	echo "slimm: installed logo $$id -> $(LOGO_DIR)/$$id.png"
-	sed 's|ExecStart=.*|ExecStart=$(BINDIR)/slimm|' slimm.service > slimm.service.tmp
-	install -Dm644 slimm.service.tmp $(DESTDIR)$(SYSTEMD_DIR)/slimm.service
-	rm -f slimm.service.tmp
+	install -Dm644 "$$logo" $(DESTDIR)$(LOGO_DIR)/$$id.png
+	$(Q)sed 's|ExecStart=.*|ExecStart=$(BINDIR)/slimm|' slimm.service > slimm.service.tmp
+	$(Q)install -Dm644 slimm.service.tmp $(DESTDIR)$(SYSTEMD_DIR)/slimm.service
+	$(Q)rm -f slimm.service.tmp
 
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/slimm
-	rm -f $(DESTDIR)$(BINDIR)/slimc
-	rm -f $(DESTDIR)$(SYSCONFDIR)/pam.d/slimm
-	rm -f $(DESTDIR)$(SYSCONFDIR)/slimm/theme.slimt
-	rm -f $(DESTDIR)$(SYSCONFDIR)/slimm/theme.toml
-	rm -f $(DESTDIR)$(SYSTEMD_DIR)/slimm.service
+	$(Q)rm -f $(DESTDIR)$(BINDIR)/slimm
+	$(Q)rm -f $(DESTDIR)$(BINDIR)/slimc
+	$(Q)rm -f $(DESTDIR)$(SYSCONFDIR)/pam.d/slimm
+	$(Q)rm -f $(DESTDIR)$(SYSCONFDIR)/slimm/theme.slimt
+	$(Q)rm -f $(DESTDIR)$(SYSCONFDIR)/slimm/theme.toml
+	$(Q)rm -f $(DESTDIR)$(SYSTEMD_DIR)/slimm.service
 
 clean:
-	rm -f slimm slimc theme.slimt $(OBJ) $(DEP)
+	$(E) "  CLEAN"
+	$(Q)rm -f slimm slimc theme.slimt $(OBJ) $(DEP)
 
 .PHONY: all install uninstall clean dev logos-check
 
 dev:
-	$(MAKE) MINIMAL=0 slimm
+	$(MAKE) MINIMAL=0 V=$(V) slimm

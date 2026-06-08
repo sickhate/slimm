@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
 #include <signal.h>
 #include <pwd.h>
 #include <grp.h>
@@ -81,8 +82,10 @@ void session_launch(const char *username, const char *cmd,
         if (setuid(pw->pw_uid) < 0)
             _exit(1);
 
-        if (chdir(pw->pw_dir) < 0)
-            chdir("/");
+        if (chdir(pw->pw_dir) < 0) {
+            int rc = chdir("/");
+            (void)rc;
+        }
 
         signal(SIGINT, SIG_DFL);
         signal(SIGUSR1, SIG_DFL);
@@ -90,13 +93,24 @@ void session_launch(const char *username, const char *cmd,
 
         session_setup_user_env(username, pw, opts, opts->vt_nr);
 
-        if (exec_try_command(cmdbuf) < 0)
-            execl("/bin/sh", "sh", "-c", cmdbuf, (char *)NULL);
+        if (exec_try_command(cmdbuf) < 0) {
+            fprintf(stderr, "session: exec '%s' failed: %s\n",
+                    cmdbuf, strerror(errno));
+            if (execl("/bin/sh", "sh", "-c", cmdbuf, (char *)NULL) < 0)
+                fprintf(stderr, "session: sh -c failed: %s\n", strerror(errno));
+        }
 
-        _exit(1);
+        _exit(127);
     }
 
     int status = 0;
     waitpid(pid, &status, 0);
+    if (WIFEXITED(status))
+        fprintf(stderr, "session: compositor exited with status %d\n",
+                WEXITSTATUS(status));
+    else if (WIFSIGNALED(status))
+        fprintf(stderr, "session: compositor killed by signal %d\n",
+                WTERMSIG(status));
+    fflush(stderr);
     exec_relaunch_slimm();
 }

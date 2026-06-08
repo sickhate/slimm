@@ -1,6 +1,6 @@
 [Unit]
-Description=SLiMM — stateless DRM/KMS login bootstrapper
-Documentation=https://github.com/sickhate/slimm
+Description=SLiMM — stateless DRM/KMS login bootstrapper (SLiM lineage)
+Documentation=file:/usr/share/doc/slimm/README.md
 DefaultDependencies=no
 After=systemd-user-sessions.service
 Before=graphical.target

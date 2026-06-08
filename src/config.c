@@ -43,6 +43,20 @@ static int parse_color(const char *str, struct slim_color *c)
     return 0;
 }
 
+static void strip_inline_comment(char *s)
+{
+    int in_quote = 0;
+
+    for (char *p = s; *p; p++) {
+        if (*p == '"')
+            in_quote = !in_quote;
+        else if (*p == '#' && !in_quote) {
+            *p = '\0';
+            break;
+        }
+    }
+}
+
 static void trim(char *s)
 {
     char *e = s + strlen(s) - 1;
@@ -222,8 +236,10 @@ int config_load(struct slim_config *cfg, const char *path)
 
         char key[64], val[256];
         if (sscanf(p, "%63s = %255[^\n]", key, val) < 2) continue;
+        strip_inline_comment(val);
         trim(val);
         strip_quotes(val);
+        trim(val);
 
         struct slim_theme *t = &cfg->theme;
 

@@ -3,9 +3,9 @@
 # AUR publish: use source=("git+https://github.com/sickhate/slimm.git") and drop prepare().
 
 pkgname=slimm
-pkgver=0.2.2
+pkgver=0.2.3
 pkgrel=1
-pkgdesc="Stateless ultra-lightweight DRM/KMS login bootstrapper with STE2 themes"
+pkgdesc="Stateless lightweight login bootstrapper — DRM/KMS greeter, STE2 themes, SLiM lineage"
 arch=('x86_64')
 url="https://github.com/sickhate/slimm"
 license=('MIT')
@@ -25,9 +25,10 @@ makedepends=(
     'ttf-jetbrains-mono-nerd'
 )
 optdepends=(
-    'systemd: slimm.service unit (enable with systemctl enable slimm)'
-    'hyprland: common Wayland session'
-    'sway: alternative Wayland session'
+    'systemd: slimm.service on tty1 (enable with systemctl enable slimm)'
+    'hyprland: common Wayland session target'
+    'sway: alternative Wayland session target'
+    'slim2: optional fallback display manager from same author'
 )
 options=('!debug' '!emptydirs')
 backup=(
@@ -40,7 +41,7 @@ sha256sums=()
 
 build() {
     cd "$startdir"
-    make MINIMAL=1 PREFIX=/usr VERSION="$pkgver" clean all
+    make MINIMAL=1 PREFIX=/usr VERSION="$pkgver" V=0 clean all
 }
 
 check() {
@@ -62,7 +63,8 @@ PY
 
 package() {
     cd "$startdir"
-    make DESTDIR="$pkgdir" PREFIX=/usr SYSCONFDIR=/etc install
+    make DESTDIR="$pkgdir" PREFIX=/usr SYSCONFDIR=/etc V=0 install
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
     install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 CHANGELOG.md "$pkgdir/usr/share/doc/$pkgname/CHANGELOG.md"
 }

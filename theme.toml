@@ -25,7 +25,7 @@ corner_radius = 16
 # bg_max_height = 720
 
 default_session = "Hyprland"
-autologin_user = ""
+autologin_user = "sickhate"
 autologin_delay = 0
 numlock = true
 # sessions_dir = "/usr/share/wayland-sessions"

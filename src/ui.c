@@ -464,12 +464,18 @@ enum ui_action ui_key(struct ui_state *ui, int sym, int pressed, const char *utf
             if (ui->username_len > 0) {
                 ui->input_mode = INPUT_PASSWORD;
                 ui->field_dirty = 1;
+            } else {
+                snprintf(ui->message, sizeof(ui->message), "Enter username");
+                ui->field_dirty = 1;
             }
             return UI_NONE;
         }
         if (ui->input_mode == INPUT_PASSWORD) {
             if (ui->password_len > 0 && ui->username_len > 0)
                 return UI_LOGIN;
+            snprintf(ui->message, sizeof(ui->message),
+                     ui->password_len > 0 ? "Enter username" : "Enter password");
+            ui->field_dirty = 1;
             return UI_NONE;
         }
         return UI_NONE;

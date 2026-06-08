@@ -17,8 +17,14 @@ static int open_restricted(const char *path, int flags, void *user_data)
 {
     (void)user_data;
     int fd = open(path, flags | O_CLOEXEC | O_NONBLOCK);
-    if (fd < 0)
+    if (fd < 0) {
         fprintf(stderr, "input: could not open '%s'\n", path);
+        return fd;
+    }
+    /* Stop the Linux console from echoing keys under the greeter */
+    if (strstr(path, "/event") && ioctl(fd, EVIOCGRAB, (void *)1) != 0 &&
+        getenv("SLIMM_DEBUG"))
+        fprintf(stderr, "input: EVIOCGRAB failed on '%s'\n", path);
     return fd;
 }
 

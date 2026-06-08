@@ -5,8 +5,8 @@
 #include <unistd.h>
 #include <signal.h>
 #include <time.h>
-#include <sys/epoll.h>
 #include <sys/wait.h>
+#include <sys/epoll.h>
 #include <sys/timerfd.h>
 #include <errno.h>
 #include <linux/input.h>
@@ -87,6 +87,16 @@ static void clear_timer(void)
 static void do_render(struct slim_renderer *r, struct ui_state *ui,
                       struct backend *backend)
 {
+    static int last_input_mode = -1;
+
+    if (vt_fd >= 0 && ui->input_mode == INPUT_PASSWORD) {
+        if (last_input_mode != INPUT_PASSWORD)
+            vt_scrub(vt_fd);
+        else
+            vt_console_shield(vt_fd);
+    }
+    last_input_mode = ui->input_mode;
+
     ui_render(ui, r);
     if (!renderer_swap(r)) return;
 
@@ -142,19 +152,32 @@ static void session_free_opts(struct session_opts *opts)
 
 static void do_login(struct ui_state *ui, struct backend *backend)
 {
-    if (ui->username_len <= 0) return;
+    if (ui->username_len <= 0) {
+        fprintf(stderr, "slimm: login skipped (empty username)\n");
+        fflush(stderr);
+        return;
+    }
+
+    fprintf(stderr, "slimm: authenticating '%s'...\n", ui->username);
+    fflush(stderr);
 
     struct slimm_session *sess = auth_login(ui->username, ui->password);
     ui->password_len = 0;
     memset(ui->password, 0, sizeof(ui->password));
 
     if (!sess) {
+        fprintf(stderr, "slimm: login failed for '%s'\n", ui->username);
+        fflush(stderr);
         snprintf(ui->message, sizeof(ui->message), "Authentication failed");
+        ui->input_mode = INPUT_PASSWORD;
         ui->field_dirty = 1;
         return;
     }
 
     const char *cmd = ui->sessions[ui->selected_session].exec;
+    fprintf(stderr, "slimm: login ok for '%s', launching '%s'\n",
+            ui->username, cmd);
+    fflush(stderr);
     struct session_opts opts = {
         .desktop_name = ui->sessions[ui->selected_session].name,
         .pam_env = auth_get_env(sess),
@@ -164,6 +187,7 @@ static void do_login(struct ui_state *ui, struct backend *backend)
     pid_t pid = session_launch_child(ui->username, cmd, &opts, backend);
 
     if (pid < 0) {
+        fprintf(stderr, "slimm: session fork failed\n");
         auth_close(sess);
         snprintf(ui->message, sizeof(ui->message), "Session launch failed");
         session_free_opts(&opts);
@@ -192,6 +216,7 @@ static int init_drm(struct slim_renderer **renderer, struct backend *backend,
     }
     vt_take_control(vt_fd);
     vt_set_graphics(vt_fd);
+    vt_scrub(vt_fd);
 
     drm_fd = drm_find_device();
     if (drm_fd < 0) {
@@ -358,7 +383,9 @@ int main(int argc, char *argv[])
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--help") == 0) {
-            printf("SLiMM — stateless login bootstrapper\n");
+            printf("SLiMM %s — stateless login bootstrapper\n", SLIMM_VERSION);
+            printf("Successor to SLiM2; faithful to classic SLiM minimalism.\n");
+            printf("See README.md for origins, testing, and configuration.\n\n");
             printf("Usage: slimm [options]\n\n");
             printf("Options:\n");
             printf("  --ste2 PATH    STE2 theme blob (default: /etc/slimm/theme.slimt)\n");
@@ -398,6 +425,7 @@ int main(int argc, char *argv[])
     signal(SIGUSR1, sigusr1_handler);
     signal(SIGINT, SIG_IGN);
     signal(SIGTERM, sigterm_handler);
+    setlinebuf(stderr);
 
     struct slim_config config;
     config_init_defaults(&config);
@@ -590,7 +618,8 @@ int main(int argc, char *argv[])
 
             if (events[i].data.fd == timer_fd) {
                 uint64_t exp;
-                read(timer_fd, &exp, sizeof(exp));
+                ssize_t nr = read(timer_fd, &exp, sizeof(exp));
+                (void)nr;
 
                 ui.cursor_visible = !ui.cursor_visible;
                 ui.cursor_toggle++;

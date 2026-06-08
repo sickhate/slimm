@@ -1,8 +1,6 @@
-# PAM configuration for slimm — Arch Linux variant
+# PAM configuration for SLiMM — Arch Linux variant
+# Same stack as slim2; class=user (not greeter) for device ACLs on login.
 # Based on /etc/pam.d/system-login and /etc/pam.d/system-auth
-#
-# pam_systemd.so uses class=user (not greeter) so the session
-# gets device ACLs (audio, video, etc.) for the logged-in user.
 
 auth       include    system-auth
 auth       optional   pam_gnome_keyring.so
