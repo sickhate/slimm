@@ -9,6 +9,13 @@ Conflicts=getty@tty1.service
 [Service]
 ExecStart=/usr/bin/slimm
 Type=simple
+# The greeter forks a reaper child that owns PAM + execs the compositor and must
+# OUTLIVE the main process (which _exit(0)s right after the fork). The default
+# KillMode=control-group would SIGTERM the whole cgroup — including the reaper —
+# the instant main exits, killing the compositor launch before it happens (the
+# race got worse once session_wait_user_ready() was added). KillMode=process
+# kills only the main PID and leaves the reaper + compositor running.
+KillMode=process
 StandardInput=tty
 StandardOutput=journal
 StandardError=journal

@@ -2,6 +2,18 @@
 
 All notable changes to SLiMM are documented here.
 
+## [0.2.4-2] — 2026-06-09
+
+### Fixed
+
+- **Compositor failed to launch after login (intermittent → near-always).** `slimm.service`
+  set no `KillMode`, so it defaulted to `control-group`: when the greeter's main process
+  `_exit(0)`s right after forking the reaper, systemd considers the unit done and SIGTERMs
+  the **entire cgroup** — killing the reaper before it can exec the compositor. The 0.2.4
+  `session_wait_user_ready()` 15s wait widened that window so the reaper lost the race almost
+  every boot (auth succeeded, then no desktop). Added **`KillMode=process`** so systemd kills
+  only the (already-exited) main PID and leaves the reaper + compositor alive.
+
 ## [0.2.4] — 2026-06-09
 
 ### Changed
