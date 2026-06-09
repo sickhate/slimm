@@ -9,15 +9,7 @@ struct session_opts {
     int vt_nr;
 };
 
-struct session_launch_args {
-    const char *username;
-    const char *password; /* NULL for autologin */
-    const char *cmd;
-    const char *desktop_name;
-    int vt_nr;
-};
-
-/* Greeter forks, child runs this: PAM → wait user session → compositor → exec slimm */
-void session_reaper(const struct session_launch_args *args);
+void session_launch(const char *username, const char *cmd,
+                    const struct session_opts *opts);
 
 #endif

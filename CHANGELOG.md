@@ -2,6 +2,19 @@
 
 All notable changes to SLiMM are documented here.
 
+## [0.2.4-3] — 2026-06-09
+
+### Reverted
+
+- **Reverted the 0.2.4 "session launch timing" rework — it regressed login (compositor
+  never came up).** The reaper restructure (authenticate in the child, then block in
+  `session_wait_user_ready()` for up to 15s waiting on `/run/user/$UID/systemd/private`
+  before exec'ing the compositor) left users authenticated but with no desktop. Restored
+  the 0.2.3 launch path: authenticate in the parent, fork a child that **immediately**
+  execs the compositor, parent `_exit(0)` keeps PAM alive for the child. `session.c`,
+  `session.h`, `main.c` reverted to their 0.2.3 state. `KillMode=process` (from -2) is
+  kept as a safety net so the launch child can never be cgroup-killed.
+
 ## [0.2.4-2] — 2026-06-09
 
 ### Fixed

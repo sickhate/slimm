@@ -126,32 +126,28 @@ static void session_pre_fork(struct backend *backend)
     vt_set_text(vt_fd);
 }
 
-static void spawn_session_reaper(struct ui_state *ui, struct backend *backend,
-                                 const char *password_or_null)
+static int session_launch_child(const char *username, const char *cmd,
+                                struct session_opts *opts,
+                                struct backend *backend)
 {
     session_pre_fork(backend);
 
-    struct session_launch_args args = {
-        .username = ui->username,
-        .password = password_or_null,
-        .cmd = ui->sessions[ui->selected_session].exec,
-        .desktop_name = ui->sessions[ui->selected_session].name,
-        .vt_nr = vt_fd >= 0 ? vt_get_active_nr(vt_fd) : 1,
-    };
-
     pid_t pid = fork();
-    if (pid < 0) {
-        fprintf(stderr, "slimm: session fork failed\n");
-        fflush(stderr);
-        snprintf(ui->message, sizeof(ui->message), "Session launch failed");
-        ui->field_dirty = 1;
-        return;
-    }
-    if (pid > 0)
-        _exit(0);
+    if (pid < 0)
+        return -1;
+    if (pid == 0)
+        session_launch(username, cmd, opts);
 
-    session_reaper(&args);
-    _exit(1);
+    return (int)pid;
+}
+
+static void session_free_opts(struct session_opts *opts)
+{
+    if (!opts->pam_env) return;
+    for (int i = 0; opts->pam_env[i]; i++)
+        free(opts->pam_env[i]);
+    free(opts->pam_env);
+    opts->pam_env = NULL;
 }
 
 static void do_login(struct ui_state *ui, struct backend *backend)
@@ -162,13 +158,44 @@ static void do_login(struct ui_state *ui, struct backend *backend)
         return;
     }
 
-    char password[64];
-    strncpy(password, ui->password, sizeof(password) - 1);
-    password[sizeof(password) - 1] = '\0';
+    fprintf(stderr, "slimm: authenticating '%s'...\n", ui->username);
+    fflush(stderr);
+
+    struct slimm_session *sess = auth_login(ui->username, ui->password);
     ui->password_len = 0;
     memset(ui->password, 0, sizeof(ui->password));
 
-    spawn_session_reaper(ui, backend, password);
+    if (!sess) {
+        fprintf(stderr, "slimm: login failed for '%s'\n", ui->username);
+        fflush(stderr);
+        snprintf(ui->message, sizeof(ui->message), "Authentication failed");
+        ui->input_mode = INPUT_PASSWORD;
+        ui->field_dirty = 1;
+        return;
+    }
+
+    const char *cmd = ui->sessions[ui->selected_session].exec;
+    fprintf(stderr, "slimm: login ok for '%s', launching '%s'\n",
+            ui->username, cmd);
+    fflush(stderr);
+    struct session_opts opts = {
+        .desktop_name = ui->sessions[ui->selected_session].name,
+        .pam_env = auth_get_env(sess),
+        .vt_nr = vt_fd >= 0 ? vt_get_active_nr(vt_fd) : 1,
+    };
+
+    pid_t pid = session_launch_child(ui->username, cmd, &opts, backend);
+
+    if (pid < 0) {
+        fprintf(stderr, "slimm: session fork failed\n");
+        auth_close(sess);
+        snprintf(ui->message, sizeof(ui->message), "Session launch failed");
+        session_free_opts(&opts);
+        return;
+    }
+
+    /* Keep PAM session alive for child; kernel reclaims on _exit(0) */
+    _exit(0);
 }
 
 static void drm_cleanup_vt(void)
@@ -604,7 +631,27 @@ int main(int argc, char *argv[])
                     if (elapsed >= ui.autologin_delay) {
                         ui.autologin_active = 0;
                         clear_timer();
-                        spawn_session_reaper(&ui, &backend, NULL);
+
+                        struct slimm_session *sess = auth_autologin(ui.username);
+                        if (!sess) continue;
+
+                        const char *cmd = ui.sessions[ui.selected_session].exec;
+                        struct session_opts opts = {
+                            .desktop_name = ui.sessions[ui.selected_session].name,
+                            .pam_env = auth_get_env(sess),
+                            .vt_nr = vt_fd >= 0 ? vt_get_active_nr(vt_fd) : 1,
+                        };
+
+                        pid_t pid = session_launch_child(ui.username, cmd, &opts,
+                                                         &backend);
+
+                        if (pid < 0) {
+                            auth_close(sess);
+                            session_free_opts(&opts);
+                            continue;
+                        }
+
+                        _exit(0);
                     }
                 }
 

@@ -4,7 +4,7 @@
 
 pkgname=slimm
 pkgver=0.2.4
-pkgrel=2
+pkgrel=3
 pkgdesc="Stateless lightweight login bootstrapper — DRM/KMS greeter, STE2 themes, SLiM lineage"
 arch=('x86_64')
 url="https://github.com/sickhate/slimm"
