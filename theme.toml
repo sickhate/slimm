@@ -25,6 +25,8 @@ corner_radius = 16
 # bg_max_height = 720
 
 default_session = "Hyprland"
+
+# Pre-fill username — greeter opens on password field. Comments on own line only.
 autologin_user = "sickhate"
 autologin_delay = 0
 numlock = true

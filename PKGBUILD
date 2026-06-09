@@ -3,7 +3,7 @@
 # AUR publish: use source=("git+https://github.com/sickhate/slimm.git") and drop prepare().
 
 pkgname=slimm
-pkgver=0.2.3
+pkgver=0.2.4
 pkgrel=1
 pkgdesc="Stateless lightweight login bootstrapper — DRM/KMS greeter, STE2 themes, SLiM lineage"
 arch=('x86_64')

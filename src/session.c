@@ -9,7 +9,39 @@
 #include <grp.h>
 #include <sys/wait.h>
 #include "session.h"
+#include "auth.h"
 #include "exec.h"
+
+#define SESSION_WAIT_MS 15000
+
+static void session_free_pam_env(char **pam_env)
+{
+    if (!pam_env) return;
+    for (int i = 0; pam_env[i]; i++)
+        free(pam_env[i]);
+    free(pam_env);
+}
+
+static int session_wait_user_ready(uid_t uid)
+{
+    char bus[64], priv[72];
+
+    snprintf(bus, sizeof(bus), "/run/user/%u/bus", uid);
+    snprintf(priv, sizeof(priv), "/run/user/%u/systemd/private", uid);
+
+    for (int ms = 0; ms < SESSION_WAIT_MS; ms += 100) {
+        if (access(bus, F_OK) == 0 && access(priv, F_OK) == 0) {
+            fprintf(stderr, "session: user@%u ready (%dms)\n", uid, ms);
+            fflush(stderr);
+            return 0;
+        }
+        usleep(100000);
+    }
+
+    fprintf(stderr, "session: timed out waiting for user@%u (bus/systemd)\n", uid);
+    fflush(stderr);
+    return -1;
+}
 
 static void session_setup_user_env(const char *username, struct passwd *pw,
                                    const struct session_opts *opts, int vt_nr)
@@ -20,18 +52,21 @@ static void session_setup_user_env(const char *username, struct passwd *pw,
     setenv("SHELL", pw->pw_shell, 1);
     setenv("PATH", "/usr/local/bin:/usr/bin:/bin", 1);
     setenv("XDG_SESSION_TYPE", "wayland", 1);
+    setenv("XDG_SESSION_CLASS", "user", 1);
     setenv("XDG_SEAT", "seat0", 1);
 
     char vtn[16];
     snprintf(vtn, sizeof(vtn), "%d", vt_nr > 0 ? vt_nr : 1);
     setenv("XDG_VTNR", vtn, 1);
 
-    if (opts->desktop_name && opts->desktop_name[0])
+    if (opts->desktop_name && opts->desktop_name[0]) {
         setenv("XDG_CURRENT_DESKTOP", opts->desktop_name, 1);
+        setenv("XDG_SESSION_DESKTOP", opts->desktop_name, 1);
+    }
 
     char rt[64];
     snprintf(rt, sizeof(rt), "/run/user/%d", pw->pw_uid);
-    setenv("XDG_RUNTIME_DIR", rt, 0);
+    setenv("XDG_RUNTIME_DIR", rt, 1);
 
     if (opts->cursor_theme && opts->cursor_theme[0])
         setenv("XCURSOR_THEME", opts->cursor_theme, 1);
@@ -53,23 +88,22 @@ static void session_setup_user_env(const char *username, struct passwd *pw,
     }
 }
 
-void session_launch(const char *username, const char *cmd,
-                    const struct session_opts *opts)
+static void session_run_compositor(const char *username, const char *cmd,
+                                   const struct session_opts *opts)
 {
     struct passwd *pw = getpwnam(username);
     if (!pw) {
         fprintf(stderr, "session: getpwnam(%s) failed\n", username);
-        _exit(1);
+        return;
     }
 
     char cmdbuf[256];
     strncpy(cmdbuf, cmd, sizeof(cmdbuf) - 1);
     cmdbuf[sizeof(cmdbuf) - 1] = '\0';
 
-    /* Root reaper: one blocked waitpid (~minimal RSS), exec slimm on compositor exit */
     pid_t pid = fork();
     if (pid < 0)
-        _exit(1);
+        return;
 
     if (pid == 0) {
         if (setsid() < 0)
@@ -112,5 +146,50 @@ void session_launch(const char *username, const char *cmd,
         fprintf(stderr, "session: compositor killed by signal %d\n",
                 WTERMSIG(status));
     fflush(stderr);
+}
+
+void session_reaper(const struct session_launch_args *args)
+{
+    struct slimm_session *sess;
+
+    if (args->password) {
+        fprintf(stderr, "slimm: authenticating '%s'...\n", args->username);
+        sess = auth_login(args->username, args->password);
+    } else {
+        sess = auth_autologin(args->username);
+    }
+    fflush(stderr);
+
+    if (!sess) {
+        fprintf(stderr, "slimm: login failed for '%s'\n", args->username);
+        fflush(stderr);
+        exec_relaunch_slimm();
+        _exit(1);
+    }
+
+    fprintf(stderr, "slimm: login ok for '%s', launching '%s'\n",
+            args->username, args->cmd);
+    fflush(stderr);
+
+    struct passwd *pw = getpwnam(args->username);
+    if (!pw) {
+        auth_close(sess);
+        exec_relaunch_slimm();
+        _exit(1);
+    }
+
+    session_wait_user_ready(pw->pw_uid);
+
+    struct session_opts opts = {
+        .desktop_name = args->desktop_name,
+        .pam_env = auth_get_env(sess),
+        .vt_nr = args->vt_nr,
+    };
+
+    session_run_compositor(args->username, args->cmd, &opts);
+
+    session_free_pam_env(opts.pam_env);
+    auth_close(sess);
     exec_relaunch_slimm();
+    _exit(1);
 }

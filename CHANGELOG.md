@@ -2,6 +2,42 @@
 
 All notable changes to SLiMM are documented here.
 
+## [0.2.4] — 2026-06-09
+
+### Changed
+
+- **Session launch**: greeter forks a root **reaper** that owns PAM for the full compositor lifetime (no early logind session close)
+- Reaper waits up to 15s for `/run/user/$UID/bus` and `systemd/private` before execing the compositor
+- Sets `XDG_SESSION_CLASS`, `XDG_SESSION_DESKTOP`, and `XDG_RUNTIME_DIR` (overwrite) for Wayland sessions
+
+### Fixed
+
+- Hyprland safe-mode / crash-on-first-boot when compositor started before user systemd was ready
+- `Session 1 logged out` immediately after login (PAM session died with greeter `_exit`)
+- `xdg-desktop-portal-hyprland` failing on boot (`Couldn't connect to a wayland compositor`)
+
+## [0.2.3] — 2026-06-08
+
+### Added
+
+- README: origins & lineage (SLiM → SLiM2 → SLiMM), build flags, testing guide
+- `slimm` / `slimc` stderr logging with `fflush` for journal debugging
+- `EVIOCGRAB` on libinput devices — stop TTY echo stealing keystrokes
+- `vt_console_shield()` — `KDSKBMODE K_OFF` on active VT + `/dev/tty0`
+- TOML parser: strip inline `#` comments from values (respecting quotes)
+- `autologin_user` in `theme.toml` — pre-fill username, start on password field
+
+### Changed
+
+- UI: show **Enter password** / **Enter username** when Enter pressed too early
+- PKGBUILD installs `CHANGELOG.md`; `pkgdesc` updated
+
+### Fixed
+
+- Password visible on TTY scrollback below greeter UI
+- Login never reaching PAM when keyboard went to Linux console instead of libinput
+- `autologin_user` broken by inline `#` comment on same line in `theme.toml`
+
 ## [0.2.2] — 2026-06-07
 
 ### Added
@@ -40,7 +76,6 @@ All notable changes to SLiMM are documented here.
 
 - `Restart=on-failure` — login no longer respawns greeter while compositor runs
 - Session: root reaper `waitpid` + `exec slimm` on compositor exit (no systemd helper)
-- PAM: skip `auth_close()` on successful login handoff (session stays valid for child)
 - `.desktop` Exec lines sanitized at scan time and launch time
 
 ### Fixed
@@ -58,8 +93,6 @@ All notable changes to SLiMM are documented here.
 - `make dev` target for full dev binary with TOML + Wayland backends
 - `theme.slimt` built and installed by `make install`
 - `bg_max_width` / `bg_max_height` in `theme.toml` (default 1280×720)
-- `config_init_defaults()`, `config_load_sessions()` — skip full TOML parse when STE2 loads
-- `slim_images_free()` — shared GL texture cleanup
 - README.md, CHANGELOG.md
 
 ### Changed
@@ -68,7 +101,6 @@ All notable changes to SLiMM are documented here.
 - **Init order**: STE2 first; TOML/font/runtime images only in dev build
 - Default `theme.toml`: solid-color background (lowest RAM)
 - `PKGBUILD`: `MINIMAL=1` build; runtime deps trimmed (font libs → makedepends only)
-- `AGENTS.md`: aligned with stateless one-shot architecture spec
 - `slimm.service`: `Restart=on-failure` (reaper execs greeter on logout)
 - Session launch: parent `_exit(0)` after fork (stateless, 0 MB post-login)
 
