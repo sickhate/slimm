@@ -4,7 +4,7 @@
 # See README.md for lineage (SLiM → SLiM2 → SLiMM) and build flags
 
 MINIMAL ?= 1
-VERSION ?= 0.2.4
+VERSION ?= 0.2.4.3
 V ?= 0
 
 OPT_CFLAGS = -Os -pipe -flto -fdata-sections -ffunction-sections

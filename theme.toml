@@ -27,7 +27,7 @@ corner_radius = 16
 default_session = "Hyprland"
 
 # Pre-fill username — greeter opens on password field. Comments on own line only.
-autologin_user = "sickhate"
+# autologin_user = "username"   # uncomment + set to pre-fill; greeter opens on password field
 autologin_delay = 0
 numlock = true
 # sessions_dir = "/usr/share/wayland-sessions"
