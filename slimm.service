@@ -5,25 +5,28 @@ DefaultDependencies=no
 After=systemd-user-sessions.service
 Before=graphical.target
 Conflicts=getty@tty1.service
+# Crash-loop guard: if the greeter (or session) dies >5×/30s, give up and stop
+# so the machine falls back to a usable tty instead of flickering forever.
+StartLimitIntervalSec=30
+StartLimitBurst=5
 
 [Service]
 ExecStart=/usr/bin/slimm
 Type=simple
-# The greeter forks a reaper child that owns PAM + execs the compositor and must
-# OUTLIVE the main process (which _exit(0)s right after the fork). The default
-# KillMode=control-group would SIGTERM the whole cgroup — including the reaper —
-# the instant main exits, killing the compositor launch before it happens (the
-# race got worse once session_wait_user_ready() was added). KillMode=process
-# kills only the main PID and leaves the reaper + compositor running.
-KillMode=process
+# slimm has no reaper: the greeter authenticates then exec()s the compositor in
+# place (the main PID *becomes* the compositor). systemd is the supervisor —
+# when the compositor exits (logout), Restart=always starts a fresh greeter.
+# So no lingering slimm process during the session, and the default
+# control-group KillMode correctly tears the session down on stop/restart.
 StandardInput=tty
 StandardOutput=journal
 StandardError=journal
-Restart=on-failure
+Restart=always
 RestartSec=1
 TTYPath=/dev/tty1
 TTYReset=yes
-TTYVHangup=yes
+# Compositor setsid()s + ignores SIGHUP; keep VT hangups from disturbing it.
+TTYVHangup=no
 UtmpIdentifier=tty1
 
 [Install]

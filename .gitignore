@@ -10,3 +10,4 @@ src/slimm-src/
 preview*.png
 .bare.git/
 slimm.service.tmp
+/AGENTS.md

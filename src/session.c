@@ -58,7 +58,7 @@ void session_launch(const char *username, const char *cmd,
 {
     struct passwd *pw = getpwnam(username);
     if (!pw) {
-        fprintf(stderr, "session: getpwnam(%s) failed\n", username);
+        slimm_log("session: getpwnam(%s) failed", username);
         _exit(1);
     }
 
@@ -66,51 +66,46 @@ void session_launch(const char *username, const char *cmd,
     strncpy(cmdbuf, cmd, sizeof(cmdbuf) - 1);
     cmdbuf[sizeof(cmdbuf) - 1] = '\0';
 
-    /* Root reaper: one blocked waitpid (~minimal RSS), exec slimm on compositor exit */
-    pid_t pid = fork();
-    if (pid < 0)
+    slimm_log("session: pid %d exec '%s' as %s", getpid(), cmdbuf, username);
+
+    /*
+     * No fork, no reaper: the greeter process *becomes* the compositor. systemd
+     * is the supervisor — slimm.service is Restart=always, so when the compositor
+     * exits (logout) systemd starts a fresh greeter. Benefits over the old reaper:
+     *   - zero lingering slimm process during the session (the point of slimm);
+     *   - exec closes slimm's O_CLOEXEC DRM/input fds, so no leftover DRM client
+     *     can stall the compositor's first modeset (the NVIDIA freeze).
+     */
+    if (setsid() < 0)
+        slimm_log("session: setsid failed: %s", strerror(errno));
+    signal(SIGHUP, SIG_IGN);
+
+    if (initgroups(username, pw->pw_gid) < 0 ||
+        setgid(pw->pw_gid) < 0 ||
+        setuid(pw->pw_uid) < 0) {
+        slimm_log("session: drop privileges failed: %s", strerror(errno));
         _exit(1);
-
-    if (pid == 0) {
-        if (setsid() < 0)
-            fprintf(stderr, "session: setsid failed\n");
-
-        if (initgroups(username, pw->pw_gid) < 0)
-            _exit(1);
-        if (setgid(pw->pw_gid) < 0)
-            _exit(1);
-        if (setuid(pw->pw_uid) < 0)
-            _exit(1);
-
-        if (chdir(pw->pw_dir) < 0) {
-            int rc = chdir("/");
-            (void)rc;
-        }
-
-        signal(SIGINT, SIG_DFL);
-        signal(SIGUSR1, SIG_DFL);
-        signal(SIGPIPE, SIG_DFL);
-
-        session_setup_user_env(username, pw, opts, opts->vt_nr);
-
-        if (exec_try_command(cmdbuf) < 0) {
-            fprintf(stderr, "session: exec '%s' failed: %s\n",
-                    cmdbuf, strerror(errno));
-            if (execl("/bin/sh", "sh", "-c", cmdbuf, (char *)NULL) < 0)
-                fprintf(stderr, "session: sh -c failed: %s\n", strerror(errno));
-        }
-
-        _exit(127);
     }
 
-    int status = 0;
-    waitpid(pid, &status, 0);
-    if (WIFEXITED(status))
-        fprintf(stderr, "session: compositor exited with status %d\n",
-                WEXITSTATUS(status));
-    else if (WIFSIGNALED(status))
-        fprintf(stderr, "session: compositor killed by signal %d\n",
-                WTERMSIG(status));
-    fflush(stderr);
-    exec_relaunch_slimm();
+    if (chdir(pw->pw_dir) < 0) {
+        int rc = chdir("/");
+        (void)rc;
+    }
+
+    signal(SIGINT, SIG_DFL);
+    signal(SIGUSR1, SIG_DFL);
+    signal(SIGPIPE, SIG_DFL);
+
+    session_setup_user_env(username, pw, opts, opts->vt_nr);
+
+    /* Guarantee no greeter fd (DRM/render/input/epoll/VT) survives into the
+     * compositor, regardless of O_CLOEXEC. stdio (tty/journal) stays. */
+    exec_close_inherited_fds();
+
+    if (exec_try_command(cmdbuf) < 0)
+        execl("/bin/sh", "sh", "-c", cmdbuf, (char *)NULL);
+
+    /* Only reached if exec failed — exit non-zero so systemd respawns the greeter. */
+    slimm_log("session: exec '%s' failed: %s", cmdbuf, strerror(errno));
+    _exit(127);
 }

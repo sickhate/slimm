@@ -1,8 +1,35 @@
 #define _GNU_SOURCE
 #include "exec.h"
+#include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
+#include <syslog.h>
+#include <linux/vt.h>
+
+static int slimm_log_open;
+
+void slimm_log(const char *fmt, ...)
+{
+    char buf[512];
+    va_list ap;
+
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+
+    fprintf(stderr, "%s\n", buf);
+    fflush(stderr);
+
+    if (!slimm_log_open) {
+        openlog("slimm", LOG_PID | LOG_NDELAY, LOG_DAEMON);
+        slimm_log_open = 1;
+    }
+    syslog(LOG_INFO, "%s", buf);
+}
 
 void exec_sanitize_desktop(char *s)
 {
@@ -50,16 +77,10 @@ int exec_build_argv(char *cmd, char **argv, int max)
     return n > 0 ? 0 : -1;
 }
 
-void exec_relaunch_slimm(void)
+void exec_close_inherited_fds(void)
 {
-    char path[256];
-    ssize_t n = readlink("/proc/self/exe", path, sizeof(path) - 1);
-    if (n > 0) {
-        path[n] = '\0';
-        execl(path, "slimm", (char *)NULL);
-    }
-    execl("/usr/bin/slimm", "slimm", (char *)NULL);
-    _exit(1);
+    for (int fd = 3; fd < 256; fd++)
+        (void)close(fd);
 }
 
 int exec_try_command(char *cmd)

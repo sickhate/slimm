@@ -6,20 +6,21 @@
 Boot → SLiMM → PAM auth → launch compositor → exit
 ```
 
-No SLiMM UI process after login. A minimal **root reaper** (same binary, blocked in `waitpid`) returns the greeter when the compositor exits — no systemd restart loop, no helper daemons.
+No SLiMM UI process after login. A minimal **root reaper** (same binary, blocked in `waitpid`) restarts the greeter when the compositor exits.
 
 ## Session lifecycle
 
 ```
-Login → greeter exits → reaper (PAM + waitpid)
-      → wait user systemd → exec compositor
-      → logout → auth_close → exec slimm
+Login → greeter exits → reaper waitpid(compositor)
+      → logout → systemctl start slimm.service → login screen
 ```
 
 - Greeter `_exit(0)` immediately after fork — **0 MB UI RSS** during session
-- Reaper holds the PAM/logind session until the compositor exits
-- Reaper waits for `/run/user/$UID/bus` before launching Hyprland/Sway (avoids safe-mode / portal races)
-- `Restart=on-failure` — systemd does not fight the compositor for DRM on login
+- Reaper calls `setsid()` + ignores `SIGHUP` so it survives greeter exit / unit deactivation
+- Reaper stays root, waits on the session process (e.g. `start-hyprland`)
+- On compositor exit: **`systemctl start slimm.service`** (tty1, displaces getty, journal); direct `exec slimm` fallback if systemctl fails
+- `KillMode=process` — reaper survives greeter exit (not cgroup-killed)
+- `Restart=on-failure` — systemd does not respawn greeter during an active session
 
 ## Features
 
@@ -53,7 +54,7 @@ makepkg -si                  # Arch package (from this directory)
 | Make variable | Default | Meaning |
 |---------------|---------|---------|
 | `MINIMAL=1` | yes | Production: STE2-only, no FreeType/fontconfig at runtime |
-| `VERSION=x.y.z` | `0.2.4` | Footer string `SLiMM x.y.z` |
+| `VERSION=x.y.z` | `0.2.5` | Footer string `SLiMM x.y.z` |
 | `V=0` | yes | Quiet build (PKGBUILD uses this) |
 
 Build auto-detects host OS logo → baked into `theme.slimt`. Override with `logo_path` in `theme.toml`.
@@ -116,13 +117,44 @@ slimm --config ./theme.toml    # TOML fallback
 # theme.toml: mode = "wayland"  # overlay inside Hyprland/Sway
 ```
 
+## Logout
+
+The greeter returns when the **session process exits** (what SLiMM exec'd from the
+`.desktop` file — usually `start-hyprland`, not Hyprland alone).
+
+| Hyprland bind | Effect |
+|---------------|--------|
+| `hl.dsp.exit()` (Super+M) | Exits Hyprland; `start-hyprland` exits on clean shutdown → greeter returns |
+| `loginctl terminate-user $USER` | Ends full user session → compositor exits → greeter returns |
+
+If logout shows a black screen or getty instead of SLiMM, check the journal:
+
+```bash
+journalctl -t slimm -b -e          # reaper + greeter (syslog)
+journalctl -u slimm -b -e        # greeter boot only (systemd unit)
+journalctl -b | rg 'session:'      # either source
+```
+
+Expect `session: reaper pid … launching …` right after login, then on logout
+`session: compositor exited …` and `session: relaunching greeter`.
+
+**After upgrading slimm you must log out and log in again** — the reaper from an
+older login does not pick up the new binary.
+
 ## Debugging
 
 ```bash
-journalctl -u slimm -b -e -f
+journalctl -t slimm -b -e -f
 ```
 
-Look for `session: user@1000 ready` before `launching '/usr/bin/...'`.
+After login, confirm the reaper survived:
+
+```bash
+pstree -ps "$(pgrep start-hyprland)"
+# expect: slimm(reaper) → start-hyprland → Hyprland
+```
+
+Look for `login ok for '…', launching '/usr/bin/…'` after auth.
 
 ## Development overlay
 

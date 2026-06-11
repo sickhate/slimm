@@ -2,6 +2,41 @@
 
 All notable changes to SLiMM are documented here.
 
+## [0.2.5] — 2026-06-11
+
+Reworked session launch so the greeter returns after logout **with no slimm
+process running during the session** — and fixed an NVIDIA freeze on the way.
+
+### Changed
+
+- **No reaper — the greeter `exec()`s the compositor in place.** Previously the
+  greeter forked a reaper that `waitpid`'d the compositor and relaunched the
+  greeter on its exit, so a slimm process lingered for the entire session. Now
+  `do_login` (and autologin) authenticate, release DRM/VT, drop privileges, and
+  `exec` the compositor directly: the main PID *becomes* the compositor, so
+  **zero slimm process runs during the session** (the point of a stateless
+  greeter). (`main.c`, `session.c`)
+- **systemd is the supervisor.** `slimm.service` is now `Restart=always` (+ a
+  `StartLimit` crash-guard that falls back to a tty), so when the compositor
+  exits (e.g. Hyprland Super+M) systemd starts a fresh greeter — replacing the
+  old in-process `systemctl start` self-relaunch and the `KillMode=process`
+  reaper protection.
+
+### Fixed
+
+- **Frozen display after login (NVIDIA).** The old reaper inherited slimm's
+  `O_CLOEXEC` DRM/render/input fds across the `fork` and held them open for the
+  whole session, leaving a leftover DRM client on `card1`; the compositor's first
+  atomic modeset then hung (main thread stuck in `ep_poll`, display frozen — found
+  via a live `freeze-capture` over SSH). `exec`ing the compositor closes those fds
+  inherently, and an explicit `exec_close_inherited_fds()` guards it regardless of
+  `O_CLOEXEC`.
+
+### Removed
+
+- The reaper (`session_launch_child`), `exec_relaunch_slimm()` and `attach_tty1()`
+  — superseded by the `exec` + systemd `Restart=always` model.
+
 ## [0.2.4-3] — 2026-06-09
 
 ### Reverted
@@ -100,7 +135,7 @@ All notable changes to SLiMM are documented here.
 ### Changed
 
 - `Restart=on-failure` — login no longer respawns greeter while compositor runs
-- Session: root reaper `waitpid` + `exec slimm` on compositor exit (no systemd helper)
+- Session: root reaper `waitpid` + `systemctl start slimm.service` on compositor exit (direct `exec` fallback)
 - `.desktop` Exec lines sanitized at scan time and launch time
 
 ### Fixed
@@ -126,7 +161,7 @@ All notable changes to SLiMM are documented here.
 - **Init order**: STE2 first; TOML/font/runtime images only in dev build
 - Default `theme.toml`: solid-color background (lowest RAM)
 - `PKGBUILD`: `MINIMAL=1` build; runtime deps trimmed (font libs → makedepends only)
-- `slimm.service`: `Restart=on-failure` (reaper execs greeter on logout)
+- `slimm.service`: `Restart=on-failure` (reaper starts greeter via systemctl on logout)
 - Session launch: parent `_exit(0)` after fork (stateless, 0 MB post-login)
 
 ### Fixed

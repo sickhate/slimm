@@ -126,21 +126,6 @@ static void session_pre_fork(struct backend *backend)
     vt_set_text(vt_fd);
 }
 
-static int session_launch_child(const char *username, const char *cmd,
-                                struct session_opts *opts,
-                                struct backend *backend)
-{
-    session_pre_fork(backend);
-
-    pid_t pid = fork();
-    if (pid < 0)
-        return -1;
-    if (pid == 0)
-        session_launch(username, cmd, opts);
-
-    return (int)pid;
-}
-
 static void session_free_opts(struct session_opts *opts)
 {
     if (!opts->pam_env) return;
@@ -184,18 +169,16 @@ static void do_login(struct ui_state *ui, struct backend *backend)
         .vt_nr = vt_fd >= 0 ? vt_get_active_nr(vt_fd) : 1,
     };
 
-    pid_t pid = session_launch_child(ui->username, cmd, &opts, backend);
+    /* Release DRM master + restore the VT, then exec the compositor in place
+     * (no fork). This process becomes the compositor; on its exit, systemd
+     * (Restart=always) respawns the greeter. session_launch only returns if
+     * exec failed entirely. */
+    session_pre_fork(backend);
+    session_launch(ui->username, cmd, &opts);
 
-    if (pid < 0) {
-        fprintf(stderr, "slimm: session fork failed\n");
-        auth_close(sess);
-        snprintf(ui->message, sizeof(ui->message), "Session launch failed");
-        session_free_opts(&opts);
-        return;
-    }
-
-    /* Keep PAM session alive for child; kernel reclaims on _exit(0) */
-    _exit(0);
+    fprintf(stderr, "slimm: session launch failed\n");
+    session_free_opts(&opts);
+    _exit(1);
 }
 
 static void drm_cleanup_vt(void)
@@ -642,16 +625,15 @@ int main(int argc, char *argv[])
                             .vt_nr = vt_fd >= 0 ? vt_get_active_nr(vt_fd) : 1,
                         };
 
-                        pid_t pid = session_launch_child(ui.username, cmd, &opts,
-                                                         &backend);
+                        /* Release DRM/VT, then exec the compositor in place
+                         * (no fork). systemd Restart=always respawns the
+                         * greeter on logout. Returns only if exec failed. */
+                        session_pre_fork(&backend);
+                        session_launch(ui.username, cmd, &opts);
 
-                        if (pid < 0) {
-                            auth_close(sess);
-                            session_free_opts(&opts);
-                            continue;
-                        }
-
-                        _exit(0);
+                        auth_close(sess);
+                        session_free_opts(&opts);
+                        _exit(1);
                     }
                 }
 
