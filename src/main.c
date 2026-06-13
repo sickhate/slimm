@@ -31,7 +31,18 @@
 
 #define MAX_EVENTS 8
 
+/* Exit status meaning "the user pressed Escape to drop to a console". The
+ * service file lists this in RestartPreventExitStatus= so systemd does NOT
+ * respawn the greeter — ESC truly stops slimm and leaves the tty free for a
+ * console login. Every other exit (logout = compositor exit code, or a crash)
+ * still triggers Restart=always. 42 is outside the normal 0/1/127 codes slimm
+ * uses and well clear of systemd's own range. */
+#define SLIMM_EXIT_CONSOLE 42
+
 static int running = 1;
+/* Set to SLIMM_EXIT_CONSOLE by the Escape (UI_QUIT) path; stays 0 for SIGTERM
+ * (systemctl stop/restart) so those behave normally. Returned from main(). */
+static int exit_code = 0;
 static int timer_fd = -1;
 static int vt_fd = -1;
 static int drm_fd = -1;
@@ -556,7 +567,7 @@ int main(int argc, char *argv[])
                                                      wev.utf8);
                         switch (act) {
                         case UI_LOGIN:    do_login(&ui, &backend); break;
-                        case UI_QUIT:     running = 0; break;
+                        case UI_QUIT:     exit_code = SLIMM_EXIT_CONSOLE; running = 0; break;
                         case UI_POWEROFF:
                             if (fork() == 0) { execl("/usr/bin/systemctl", "systemctl", "poweroff", NULL); _exit(1); }
                             break;
@@ -580,7 +591,7 @@ int main(int argc, char *argv[])
                             enum ui_action act = ui_key(&ui, ev.key_sym, ev.key_pressed, ev.utf8);
                             switch (act) {
                             case UI_LOGIN:    do_login(&ui, &backend); break;
-                            case UI_QUIT:     running = 0; break;
+                            case UI_QUIT:     exit_code = SLIMM_EXIT_CONSOLE; running = 0; break;
                             case UI_POWEROFF:
                                 if (fork() == 0) { execl("/usr/bin/systemctl", "systemctl", "poweroff", NULL); _exit(1); }
                                 break;
@@ -650,10 +661,18 @@ int main(int argc, char *argv[])
     font_destroy(font);
     renderer_destroy(renderer);
     if (backend.is_drm) {
+        /* On Escape, drop onto the next console (a getty) so the user lands on a
+         * login prompt instead of slimm's stale tty. Capture the target while we
+         * still own the VT; activate it after releasing DRM + restoring text mode. */
+        int console_vt = (exit_code == SLIMM_EXIT_CONSOLE && vt_fd >= 0)
+                             ? vt_get_active_nr(vt_fd) + 1
+                             : 0;
         drm_destroy(backend.gbm);
         if (drm_fd >= 0)
             close(drm_fd);
         drm_cleanup_vt();
+        if (console_vt > 0)
+            vt_activate(vt_fd, console_vt);
         close(vt_fd);
         vt_fd = -1;
         drm_fd = -1;
@@ -665,5 +684,7 @@ int main(int argc, char *argv[])
     }
 #endif
 
-    return 0;
+    /* SLIMM_EXIT_CONSOLE here (Escape) tells systemd not to respawn; 0 otherwise
+     * (SIGTERM/stop). The compositor-exec path never reaches this return. */
+    return exit_code;
 }

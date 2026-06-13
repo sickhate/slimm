@@ -3,6 +3,7 @@
 
 int vt_open(void);
 int vt_get_active_nr(int vt_fd);
+void vt_activate(int vt_fd, int nr);
 void vt_take_control(int vt_fd);
 void vt_give_control(int vt_fd);
 void vt_console_shield(int vt_fd);

@@ -2,6 +2,26 @@
 
 All notable changes to SLiMM are documented here.
 
+## [0.2.5-6] — 2026-06-13
+
+Escape now truly drops to a console — it no longer fights the greeter respawn.
+
+### Added
+
+- **Escape exits to a console and stays there.** Pressing Escape at an empty
+  username field exits the greeter with status `42`; `slimm.service` lists this
+  in `RestartPreventExitStatus=`, so systemd does **not** respawn the greeter.
+  Previously `Restart=always` re-grabbed tty1 about a second after Escape and
+  fought whatever console login the user had switched to. Logout (the compositor
+  exit code) and crashes still respawn via `Restart=always` as before.
+  (`main.c` `SLIMM_EXIT_CONSOLE`, `slimm.service`)
+- **Escape jumps to a getty VT.** On Escape, after releasing DRM and restoring
+  the console to text mode, slimm activates the next virtual terminal (slimm's
+  VT + 1, i.e. tty2) so the user lands directly on a getty login prompt instead
+  of slimm's stale framebuffer. (`vt.c` `vt_activate`, `main.c`)
+
+To relaunch the greeter afterwards: `systemctl start slimm` from the console.
+
 ## [0.2.5] — 2026-06-11
 
 Reworked session launch so the greeter returns after logout **with no slimm

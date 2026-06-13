@@ -23,6 +23,11 @@ StandardOutput=journal
 StandardError=journal
 Restart=always
 RestartSec=1
+# Escape (UI_QUIT) exits the greeter with 42 — do NOT respawn it, so the user
+# drops to a console login and stays there (logout/crash still restart via
+# Restart=always). Without this, Restart=always re-grabs tty1 a second after
+# Escape and fights the console login.
+RestartPreventExitStatus=42
 TTYPath=/dev/tty1
 TTYReset=yes
 # Compositor setsid()s + ignores SIGHUP; keep VT hangups from disturbing it.

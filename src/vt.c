@@ -59,6 +59,17 @@ int vt_get_active_nr(int vt_fd)
     return 1;
 }
 
+void vt_activate(int vt_fd, int nr)
+{
+    if (vt_fd < 0 || nr < 1)
+        return;
+    /* Switch the active console to `nr` and wait for the switch to complete.
+     * Used on the Escape path to drop onto a getty VT (logind starts the getty
+     * on demand when the VT is activated). Best-effort — ignore failures. */
+    if (ioctl(vt_fd, VT_ACTIVATE, nr) == 0)
+        ioctl(vt_fd, VT_WAITACTIVE, nr);
+}
+
 int vt_open(void)
 {
     int fd = -1;
