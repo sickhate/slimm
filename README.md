@@ -3,24 +3,24 @@
 **S**tateless **L**ightweight Modern **M**anager — an ultra-lightweight graphical login bootstrapper for Wayland-era Linux.
 
 ```
-Boot → SLiMM → PAM auth → launch compositor → exit
+Boot → SLiMM → PAM auth → exec compositor (in place) → logout → systemd respawns SLiMM
 ```
 
-No SLiMM UI process after login. A minimal **root reaper** (same binary, blocked in `waitpid`) restarts the greeter when the compositor exits.
+No SLiMM process after login. The greeter authenticates then **`exec()`s the compositor in place** — the main PID *becomes* the compositor, so nothing lingers. systemd is the supervisor: `slimm.service` is `Restart=always`, so when the compositor exits (logout) a fresh greeter starts.
 
 ## Session lifecycle
 
 ```
-Login → greeter exits → reaper waitpid(compositor)
-      → logout → systemctl start slimm.service → login screen
+Login → greeter exec()s compositor (no slimm process left)
+      → logout (compositor exits) → systemd Restart=always → login screen
 ```
 
-- Greeter `_exit(0)` immediately after fork — **0 MB UI RSS** during session
-- Reaper calls `setsid()` + ignores `SIGHUP` so it survives greeter exit / unit deactivation
-- Reaper stays root, waits on the session process (e.g. `start-hyprland`)
-- On compositor exit: **`systemctl start slimm.service`** (tty1, displaces getty, journal); direct `exec slimm` fallback if systemctl fails
-- `KillMode=process` — reaper survives greeter exit (not cgroup-killed)
-- `Restart=on-failure` — systemd does not respawn greeter during an active session
+- Greeter `exec()`s the compositor in place — the main PID becomes the compositor, so **0 MB slimm RSS** during the session (the point of a stateless greeter)
+- `exec` closes slimm's DRM/render/input fds (an explicit `exec_close_inherited_fds()` guards it regardless of `O_CLOEXEC`), so no leftover DRM client stalls the compositor's first modeset — this is what fixed the NVIDIA post-login freeze
+- `setsid()` + ignore `SIGHUP` so VT hangups don't disturb the compositor
+- **systemd is the supervisor:** `slimm.service` `Restart=always` starts a fresh greeter when the compositor exits
+- `StartLimitBurst=5 / 30s` crash-loop guard — falls back to a usable tty instead of flickering forever
+- `RestartPreventExitStatus=42` — Escape exits the greeter (status `42`) to a console and systemd does **not** respawn it
 
 ## Features
 
@@ -119,27 +119,25 @@ slimm --config ./theme.toml    # TOML fallback
 
 ## Logout
 
-The greeter returns when the **session process exits** (what SLiMM exec'd from the
-`.desktop` file — usually `start-hyprland`, not Hyprland alone).
+The slimm.service main PID *is* the compositor (SLiMM exec'd it from the
+`.desktop` file — usually `start-hyprland`, not Hyprland alone). When that exits,
+the unit's `Restart=always` starts a fresh greeter.
 
 | Hyprland bind | Effect |
 |---------------|--------|
-| `hl.dsp.exit()` (Super+M) | Exits Hyprland; `start-hyprland` exits on clean shutdown → greeter returns |
-| `loginctl terminate-user $USER` | Ends full user session → compositor exits → greeter returns |
+| `hl.dsp.exit()` (Super+M) | Exits Hyprland; `start-hyprland` exits on clean shutdown → unit restarts → greeter returns |
+| `loginctl terminate-user $USER` | Ends full user session → compositor exits → unit restarts → greeter returns |
 
 If logout shows a black screen or getty instead of SLiMM, check the journal:
 
 ```bash
-journalctl -t slimm -b -e          # reaper + greeter (syslog)
-journalctl -u slimm -b -e        # greeter boot only (systemd unit)
+journalctl -t slimm -b -e          # greeter (syslog)
+journalctl -u slimm -b -e          # systemd unit (start/restart)
 journalctl -b | rg 'session:'      # either source
 ```
 
-Expect `session: reaper pid … launching …` right after login, then on logout
-`session: compositor exited …` and `session: relaunching greeter`.
-
-**After upgrading slimm you must log out and log in again** — the reaper from an
-older login does not pick up the new binary.
+Expect `session: pid … exec '…' as <user>` right after login; on logout, systemd
+restarts the unit and a fresh greeter comes up (`RestartSec=1`).
 
 ## Debugging
 
@@ -147,11 +145,12 @@ older login does not pick up the new binary.
 journalctl -t slimm -b -e -f
 ```
 
-After login, confirm the reaper survived:
+After login, confirm no slimm process lingers (the PID became the compositor):
 
 ```bash
-pstree -ps "$(pgrep start-hyprland)"
-# expect: slimm(reaper) → start-hyprland → Hyprland
+pgrep -a slimm                     # expect: no output during an active session
+pstree -ps "$(pgrep -x Hyprland | head -1)"
+# expect: systemd → start-hyprland → Hyprland  (no slimm in the chain)
 ```
 
 Look for `login ok for '…', launching '/usr/bin/…'` after auth.
