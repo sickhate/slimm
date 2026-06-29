@@ -5,6 +5,12 @@ DefaultDependencies=no
 After=systemd-user-sessions.service
 Before=graphical.target
 Conflicts=getty@tty1.service
+# DefaultDependencies=no drops the implicit shutdown ordering, so on poweroff/
+# reboot the compositor's exit would let Restart=always pop a fresh greeter
+# mid-shutdown. Re-add the conflict + ordering so slimm is stopped (not
+# restarted) the moment shutdown begins.
+Conflicts=shutdown.target
+Before=shutdown.target
 # Crash-loop guard: if the greeter (or session) dies >5×/30s, give up and stop
 # so the machine falls back to a usable tty instead of flickering forever.
 StartLimitIntervalSec=30

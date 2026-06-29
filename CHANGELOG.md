@@ -2,6 +2,21 @@
 
 All notable changes to SLiMM are documented here.
 
+## [0.2.5-7] — 2026-06-29
+
+No more graphical login flashing up during shutdown/reboot.
+
+### Fixed
+
+- **Greeter respawned mid-shutdown.** `slimm.service` has `DefaultDependencies=no`,
+  which drops the implicit `Conflicts=shutdown.target` / `Before=shutdown.target`
+  that ordinary units get. So on poweroff/reboot, no stop job was ordered for
+  slimm: when the session/compositor (the main PID) was torn down, `Restart=always`
+  dutifully spawned a fresh greeter — the graphical login briefly reappearing
+  during shutdown. Added `Conflicts=shutdown.target` + `Before=shutdown.target`
+  so slimm is *stopped* (not restarted) the instant shutdown begins. A stop via a
+  conflicting job is a clean stop, so `Restart=` does not fire. (`slimm.service`)
+
 ## [0.2.5-6] — 2026-06-13
 
 Escape now truly drops to a console — it no longer fights the greeter respawn.
